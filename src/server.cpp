@@ -7,6 +7,31 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <vector>
+#include <string>
+
+
+// TODO: refactor to parsing to object instead of vector
+std::vector<std::string> ParseRequestBuffer(const char* buffer) {
+  std::vector<std::string> result;
+  std::string word;
+
+  for (int i = 0; buffer[i] != '\0'; ++i) {
+    if (buffer[i] == ' ' || buffer[i] == '\r' || buffer[i] == '\n') {
+      if (!word.empty()) {
+        result.push_back(word);
+        word.clear();
+      }
+    } else {
+      word += buffer[i];
+    }
+  }
+  if (!word.empty()) {
+    result.push_back(word);
+  }
+
+  return result;
+}
 
 int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
@@ -55,9 +80,25 @@ int main(int argc, char **argv) {
   int rcvsocket = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
   std::cout << "Client connected\n";
 
-  const char* response = "HTTP/1.1 200 OK\r\n\r\n";
-  send(rcvsocket, response, strlen(response), 0);
-  std::cout << "Response sent: " << response << std::endl;
+  char buffer[1024] = {0};
+  recv(rcvsocket, buffer, sizeof(buffer), 0);
+  std::cout << "Client message:" << buffer << std::endl;
+  
+  std::vector<std::string> parsed_request = ParseRequestBuffer(buffer);
+  const char* response_200 = "HTTP/1.1 200 OK\r\n\r\n";
+  const char* response_404 = "HTTP/1.1 404 Not Found\r\n\r\n";
+  const char* response = response_200;
+  if (parsed_request[1] != "/") {
+    response = response_404;
+  }
+
+  ssize_t bytes_send = send(rcvsocket, response, strlen(response), 0);
+
+  if (bytes_send > 0) {
+    std::cout << "Response sent: " << response << std::endl;
+  } else {
+    std::cout << "Error sending response";
+  }
 
 
   close(rcvsocket);
