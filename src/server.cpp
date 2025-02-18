@@ -13,10 +13,8 @@ int main(int argc, char **argv) {
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
   
-  // You can use print statements as follows for debugging, they'll be visible when running tests.
-  // std::cout << "Logs from your program will appear here!\n";
-
-  // Uncomment this block to pass the first stage
+  // AF_INET - specify IPv4
+  // SOCK_STREAM - defines TCP socket
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
    std::cerr << "Failed to create server socket\n";
@@ -31,9 +29,11 @@ int main(int argc, char **argv) {
     return 1;
   }
   
-  struct sockaddr_in server_addr;
+
+  struct sockaddr_in server_addr;   // sockaddr_in - data type to store socket data
   server_addr.sin_family = AF_INET;
-  server_addr.sin_addr.s_addr = INADDR_ANY;
+  server_addr.sin_addr.s_addr = INADDR_ANY; // make it listen to any available IP
+  // htons - convert unsigned int from machine byte order to network byte order
   server_addr.sin_port = htons(4221);
   
   if (bind(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) != 0) {
@@ -52,9 +52,15 @@ int main(int argc, char **argv) {
   
   std::cout << "Waiting for a client to connect...\n";
   
-  accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
+  int rcvsocket = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
   std::cout << "Client connected\n";
-  
+
+  const char* response = "HTTP/1.1 200 OK\r\n\r\n";
+  send(rcvsocket, response, strlen(response), 0);
+  std::cout << "Response sent: " << response << std::endl;
+
+
+  close(rcvsocket);
   close(server_fd);
 
   return 0;
