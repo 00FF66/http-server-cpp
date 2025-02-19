@@ -10,7 +10,35 @@
 #include <vector>
 #include <string>
 
-// comment 
+struct StatusLine {
+  std::string protocol;
+  std::string status_code;
+  std::string status;
+
+  std::string to_str() {
+    return protocol + " " + status_code + " " + status + "\r\n";
+  }
+};
+
+struct HeaderData {
+  std::string content_type;
+  std::string content_length;
+  
+  std::string to_str() {
+    return "Content-Type: " + content_type + 
+    "\r\nContent-Length: " + content_length + "\r\n\r\n";
+  }
+};
+
+struct Response {
+  StatusLine status;
+  HeaderData header;
+  std::string response_body;
+
+  std::string to_str() {
+    return status.to_str() + header.to_str() + response_body;
+  }
+};
 
 // TODO: refactor to parsing to object instead of vector
 std::vector<std::string> ParseRequestBuffer(const char* buffer) {
@@ -32,6 +60,50 @@ std::vector<std::string> ParseRequestBuffer(const char* buffer) {
   }
 
   return result;
+}
+
+std::vector<std::string> ParseURL(std::string url) {
+  std::vector<std::string> result;
+  std::string url_str;
+
+  for (int i = 0; i < url.length(); ++i) {
+    if (url[i] == '/') {
+      if (!url_str.empty()) {
+        std::cout <<"parsed url: " << url_str << std::endl; 
+        result.push_back(url_str);
+        url_str.clear();
+      }
+    } else {
+      url_str += url[i];
+    }
+  }
+  if (!url_str.empty()) {
+    std::cout <<"last url: " << url_str << std::endl; 
+    result.push_back(url_str);
+  }
+
+  return result;
+}
+
+const char* ParseResponse(const std::string url) {
+  StatusLine status_line;
+  status_line.protocol = "HTTP/1.1";
+  status_line.status = "OK";
+  status_line.status_code = "200";
+
+  HeaderData header_data;
+  header_data.content_type = "text/plain";
+  header_data.content_length = "0";
+  
+  Response response;
+  response.status = status_line;
+  response.header = header_data;
+  if (url != "/") {
+    response.status.status = "NOT FOUND";
+    response.status.status_code = "404";
+  }
+
+  return response.to_str().c_str();
 }
 
 int main(int argc, char **argv) {
@@ -86,14 +158,19 @@ int main(int argc, char **argv) {
   std::cout << "Client message:" << buffer << std::endl;
   
   std::vector<std::string> parsed_request = ParseRequestBuffer(buffer);
-  const char* response_200 = "HTTP/1.1 200 OK\r\n\r\n";
-  const char* response_404 = "HTTP/1.1 404 Not Found\r\n\r\n";
-  const char* response = response_200;
-  if (parsed_request[1] != "/") {
+  std::vector<std::string> parse_request_target = ParseURL(parsed_request[1]);
+  std::string response_200 = "HTTP/1.1 200 OK\r\n\r\n";
+  std::string response_404 = "HTTP/1.1 404 Not Found\r\n\r\n";
+  std::string response;
+  if (parsed_request[1] == "/") {
+    response = response_200;
+  } else if (parse_request_target[0] == "echo") {
+    response = "HTTP/1.1 200 OK\r\n\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(parse_request_target[1].size()) + "\r\n\r\n" + parse_request_target[1];
+  } else {
     response = response_404;
   }
 
-  ssize_t bytes_send = send(rcvsocket, response, strlen(response), 0);
+  ssize_t bytes_send = send(rcvsocket, response.c_str(), strlen(response.c_str()), 0);
 
   if (bytes_send > 0) {
     std::cout << "Response sent: " << response << std::endl;
