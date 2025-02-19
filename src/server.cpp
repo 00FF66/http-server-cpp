@@ -69,7 +69,6 @@ std::vector<std::string> ParseURL(std::string url) {
   for (int i = 0; i < url.length(); ++i) {
     if (url[i] == '/') {
       if (!url_str.empty()) {
-        std::cout <<"parsed url: " << url_str << std::endl; 
         result.push_back(url_str);
         url_str.clear();
       }
@@ -78,7 +77,6 @@ std::vector<std::string> ParseURL(std::string url) {
     }
   }
   if (!url_str.empty()) {
-    std::cout <<"last url: " << url_str << std::endl; 
     result.push_back(url_str);
   }
 
@@ -165,14 +163,17 @@ int main(int argc, char **argv) {
   if (parsed_request[1] == "/") {
     response = response_200;
   } else if (parse_request_target[0] == "echo") {
-    response = "HTTP/1.1 200 OK\r\n\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(parse_request_target[1].size()) + "\r\n\r\n" + parse_request_target[1];
+    std::string echo_content = parse_request_target[1];
+    response = "HTTP/1.1 200 OK\r\n\r\n"
+    "Content-Type: text/plain\r\nContent-Length: " + std::to_string(echo_content.size()) + "\r\n\r\n" + echo_content + "\r\n";
   } else {
     response = response_404;
   }
 
-  ssize_t bytes_send = send(rcvsocket, response.c_str(), strlen(response.c_str()), 0);
+  ssize_t bytes_sent = send(rcvsocket, response.c_str(), response.size(), 0);
 
-  if (bytes_send > 0) {
+  if (bytes_sent > 0) {
+    std::cout << "Sent " << bytes_sent << " bytes" << std::endl;
     std::cout << "Response sent: " << response << std::endl;
   } else {
     std::cout << "Error sending response";
