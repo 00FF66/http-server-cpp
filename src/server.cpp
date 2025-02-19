@@ -164,8 +164,7 @@ int main(int argc, char **argv) {
     response = response_200;
   } else if (parse_request_target[0] == "echo") {
     std::string echo_content = parse_request_target[1];
-    response = "HTTP/1.1 200 OK\r\n\r\n"
-    "Content-Type: text/plain\r\nContent-Length: " + std::to_string(echo_content.size()) + "\r\n\r\n" + echo_content + "\r\n";
+    response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(echo_content.size()) + "\r\n\r\n" + echo_content;
   } else {
     response = response_404;
   }
