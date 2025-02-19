@@ -59,6 +59,11 @@ std::vector<std::string> ParseRequestBuffer(const char* buffer) {
     result.push_back(word);
   }
 
+  std::cout << "output result:" << std::endl;
+  for (std::string value : result) {
+    std::cout << "Parsed elem: " << value << std::endl;
+  }
+
   return result;
 }
 
@@ -102,6 +107,11 @@ const char* ParseResponse(const std::string url) {
   }
 
   return response.to_str().c_str();
+}
+
+std::string Response200WithIndex(std::vector<std::string> data, int index) {
+  std::string body_content = data[index];
+  return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(body_content.size()) + "\r\n\r\n" + body_content;
 }
 
 int main(int argc, char **argv) {
@@ -157,16 +167,15 @@ int main(int argc, char **argv) {
   
   std::vector<std::string> parsed_request = ParseRequestBuffer(buffer);
   std::vector<std::string> parse_request_target = ParseURL(parsed_request[1]);
-  std::string response_200 = "HTTP/1.1 200 OK\r\n\r\n";
-  std::string response_404 = "HTTP/1.1 404 Not Found\r\n\r\n";
   std::string response;
   if (parsed_request[1] == "/") {
-    response = response_200;
+    response = "HTTP/1.1 200 OK\r\n\r\n";
   } else if (parse_request_target[0] == "echo") {
-    std::string echo_content = parse_request_target[1];
-    response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(echo_content.size()) + "\r\n\r\n" + echo_content;
+    response = Response200WithIndex(parse_request_target, 1);
+  } else if (parse_request_target[0] == "user-agent") {
+    response = Response200WithIndex(parsed_request, 6);
   } else {
-    response = response_404;
+    response = "HTTP/1.1 404 Not Found\r\n\r\n";
   }
 
   ssize_t bytes_sent = send(rcvsocket, response.c_str(), response.size(), 0);
