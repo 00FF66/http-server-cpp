@@ -109,7 +109,7 @@ std::string Response200WithIndex(std::vector<std::string> data, int index) {
   return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(body_content.size()) + "\r\n\r\n" + body_content;
 }
 
-int CreateConnection() {
+int OpenConnection() {
   // AF_INET - specify IPv4
   // SOCK_STREAM - defines TCP socket
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -146,59 +146,68 @@ int CreateConnection() {
   return server_fd;
 }
 
+int ProcessRequest(const int server_fd, const sockaddr_in client_addr, const int client_addr_len) {
+  
+  int rcvsocket = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
+  std::cout << "Client connected on socket = " << rcvsocket << "\n";
+
+  char buffer[1024] = {0};
+  recv(rcvsocket, buffer, sizeof(buffer), 0);
+  std::cout << "Client message:" << buffer << std::endl;
+  
+  std::vector<std::string> parsed_request = ParseRequestBuffer(buffer);
+  std::vector<std::string> parse_request_target = ParseURL(parsed_request[1]);
+  std::string response;
+  if (parsed_request[1] == "/") {
+    response = "HTTP/1.1 200 OK\r\n\r\n";
+  } else if (parse_request_target[0] == "echo") {
+    response = Response200WithIndex(parse_request_target, 1);
+  } else if (parse_request_target[0] == "user-agent") {
+    response = Response200WithIndex(parsed_request, 6);
+  } else if (parse_request_target[0] == "shutdown") {
+    close(rcvsocket);
+    close(server_fd);
+    return -1;
+  } else {
+    response = "HTTP/1.1 404 Not Found\r\n\r\n";
+  }
+
+  ssize_t bytes_sent = send(rcvsocket, response.c_str(), response.size(), 0);
+
+  if (bytes_sent > 0) {
+    std::cout << "Sent " << bytes_sent << " bytes" << std::endl;
+    std::cout << "Response sent: " << response << std::endl;
+  } else {
+    std::cout << "Error sending response";
+  }
+
+  close(rcvsocket);
+  close(server_fd);
+  
+  return 0;
+}
+
 int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
 
   while (true) {
-    int server_fd = CreateConnection();
+    int server_fd = OpenConnection();
     std::cout << "Server file descriptor = " << server_fd << std::endl;
     if (server_fd == -1) {
-      return server_fd;
+      break;
     }
-  
+
     struct sockaddr_in client_addr;
-    int client_addr_len = sizeof(client_addr);
+    const int client_addr_len = sizeof(client_addr);
     
     std::cout << "Waiting for a client to connect...\n";
-    
-    int rcvsocket = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
-    std::cout << "Client connected on socket = " << rcvsocket << "\n";
-  
-    char buffer[1024] = {0};
-    recv(rcvsocket, buffer, sizeof(buffer), 0);
-    std::cout << "Client message:" << buffer << std::endl;
-    
-    std::vector<std::string> parsed_request = ParseRequestBuffer(buffer);
-    std::vector<std::string> parse_request_target = ParseURL(parsed_request[1]);
-    std::string response;
-    if (parsed_request[1] == "/") {
-      response = "HTTP/1.1 200 OK\r\n\r\n";
-    } else if (parse_request_target[0] == "echo") {
-      response = Response200WithIndex(parse_request_target, 1);
-    } else if (parse_request_target[0] == "user-agent") {
-      response = Response200WithIndex(parsed_request, 6);
-    } else if (parse_request_target[0] == "shutdown") {
-      close(rcvsocket);
-      close(server_fd);
+
+    int result = ProcessRequest(server_fd, client_addr, client_addr_len);
+    if (result == -1) {
       break;
-    } else {
-      response = "HTTP/1.1 404 Not Found\r\n\r\n";
     }
-  
-    ssize_t bytes_sent = send(rcvsocket, response.c_str(), response.size(), 0);
-  
-    if (bytes_sent > 0) {
-      std::cout << "Sent " << bytes_sent << " bytes" << std::endl;
-      std::cout << "Response sent: " << response << std::endl;
-    } else {
-      std::cout << "Error sending response";
-    }
-  
-  
-    close(rcvsocket);
-    close(server_fd);
   }
   
   
