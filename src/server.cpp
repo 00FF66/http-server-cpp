@@ -59,11 +59,6 @@ std::vector<std::string> ParseRequestBuffer(const char* buffer) {
     result.push_back(word);
   }
 
-  std::cout << "output result:" << std::endl;
-  for (std::string value : result) {
-    std::cout << "Parsed elem: " << value << std::endl;
-  }
-
   return result;
 }
 
@@ -114,17 +109,13 @@ std::string Response200WithIndex(std::vector<std::string> data, int index) {
   return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(body_content.size()) + "\r\n\r\n" + body_content;
 }
 
-int main(int argc, char **argv) {
-  // Flush after every std::cout / std::cerr
-  std::cout << std::unitbuf;
-  std::cerr << std::unitbuf;
-  
+int CreateConnection() {
   // AF_INET - specify IPv4
   // SOCK_STREAM - defines TCP socket
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
    std::cerr << "Failed to create server socket\n";
-   return 1;
+   return -1;
   }
   
   // Since the tester restarts your program quite often, setting SO_REUSEADDR
@@ -132,10 +123,9 @@ int main(int argc, char **argv) {
   int reuse = 1;
   if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
     std::cerr << "setsockopt failed\n";
-    return 1;
+    return -1;
   }
   
-
   struct sockaddr_in server_addr;   // sockaddr_in - data type to store socket data
   server_addr.sin_family = AF_INET;
   server_addr.sin_addr.s_addr = INADDR_ANY; // make it listen to any available IP
@@ -144,52 +134,74 @@ int main(int argc, char **argv) {
   
   if (bind(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) != 0) {
     std::cerr << "Failed to bind to port 4221\n";
-    return 1;
+    return -1;
   }
   
   int connection_backlog = 5;
   if (listen(server_fd, connection_backlog) != 0) {
     std::cerr << "listen failed\n";
-    return 1;
-  }
-  
-  struct sockaddr_in client_addr;
-  int client_addr_len = sizeof(client_addr);
-  
-  std::cout << "Waiting for a client to connect...\n";
-  
-  int rcvsocket = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
-  std::cout << "Client connected\n";
-
-  char buffer[1024] = {0};
-  recv(rcvsocket, buffer, sizeof(buffer), 0);
-  std::cout << "Client message:" << buffer << std::endl;
-  
-  std::vector<std::string> parsed_request = ParseRequestBuffer(buffer);
-  std::vector<std::string> parse_request_target = ParseURL(parsed_request[1]);
-  std::string response;
-  if (parsed_request[1] == "/") {
-    response = "HTTP/1.1 200 OK\r\n\r\n";
-  } else if (parse_request_target[0] == "echo") {
-    response = Response200WithIndex(parse_request_target, 1);
-  } else if (parse_request_target[0] == "user-agent") {
-    response = Response200WithIndex(parsed_request, 6);
-  } else {
-    response = "HTTP/1.1 404 Not Found\r\n\r\n";
+    return -1;
   }
 
-  ssize_t bytes_sent = send(rcvsocket, response.c_str(), response.size(), 0);
+  return server_fd;
+}
 
-  if (bytes_sent > 0) {
-    std::cout << "Sent " << bytes_sent << " bytes" << std::endl;
-    std::cout << "Response sent: " << response << std::endl;
-  } else {
-    std::cout << "Error sending response";
+int main(int argc, char **argv) {
+  // Flush after every std::cout / std::cerr
+  std::cout << std::unitbuf;
+  std::cerr << std::unitbuf;
+
+  while (true) {
+    int server_fd = CreateConnection();
+    std::cout << "Server file descriptor = " << server_fd << std::endl;
+    if (server_fd == -1) {
+      return server_fd;
+    }
+  
+    struct sockaddr_in client_addr;
+    int client_addr_len = sizeof(client_addr);
+    
+    std::cout << "Waiting for a client to connect...\n";
+    
+    int rcvsocket = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
+    std::cout << "Client connected on socket = " << rcvsocket << "\n";
+  
+    char buffer[1024] = {0};
+    recv(rcvsocket, buffer, sizeof(buffer), 0);
+    std::cout << "Client message:" << buffer << std::endl;
+    
+    std::vector<std::string> parsed_request = ParseRequestBuffer(buffer);
+    std::vector<std::string> parse_request_target = ParseURL(parsed_request[1]);
+    std::string response;
+    if (parsed_request[1] == "/") {
+      response = "HTTP/1.1 200 OK\r\n\r\n";
+    } else if (parse_request_target[0] == "echo") {
+      response = Response200WithIndex(parse_request_target, 1);
+    } else if (parse_request_target[0] == "user-agent") {
+      response = Response200WithIndex(parsed_request, 6);
+    } else if (parse_request_target[0] == "shutdown") {
+      close(rcvsocket);
+      close(server_fd);
+      break;
+    } else {
+      response = "HTTP/1.1 404 Not Found\r\n\r\n";
+    }
+  
+    ssize_t bytes_sent = send(rcvsocket, response.c_str(), response.size(), 0);
+  
+    if (bytes_sent > 0) {
+      std::cout << "Sent " << bytes_sent << " bytes" << std::endl;
+      std::cout << "Response sent: " << response << std::endl;
+    } else {
+      std::cout << "Error sending response";
+    }
+  
+  
+    close(rcvsocket);
+    close(server_fd);
   }
-
-
-  close(rcvsocket);
-  close(server_fd);
+  
+  
 
   return 0;
 }
