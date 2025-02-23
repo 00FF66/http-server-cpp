@@ -9,6 +9,7 @@
 #include <netdb.h>
 #include <vector>
 #include <string>
+#include <thread>
 
 struct StatusLine {
   std::string protocol;
@@ -104,26 +105,25 @@ const char* ParseResponse(const std::string url) {
   return response.to_str().c_str();
 }
 
+// TODO: temp method, create proper methods with structs later
 std::string Response200WithIndex(std::vector<std::string> data, int index) {
   std::string body_content = data[index];
   return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(body_content.size()) + "\r\n\r\n" + body_content;
 }
 
-int OpenConnection() {
+int OpenServerConnection() {
   // AF_INET - specify IPv4
   // SOCK_STREAM - defines TCP socket
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
-   std::cerr << "Failed to create server socket\n";
-   return -1;
+   throw std::runtime_error("Failed to create server socket\n");
   }
   
   // Since the tester restarts your program quite often, setting SO_REUSEADDR
   // ensures that we don't run into 'Address already in use' errors
   int reuse = 1;
   if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-    std::cerr << "setsockopt failed\n";
-    return -1;
+    throw std::runtime_error("setsockopt failed\n");
   }
   
   struct sockaddr_in server_addr;   // sockaddr_in - data type to store socket data
@@ -133,26 +133,24 @@ int OpenConnection() {
   server_addr.sin_port = htons(4221);
   
   if (bind(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) != 0) {
-    std::cerr << "Failed to bind to port 4221\n";
-    return -1;
+    throw std::runtime_error("Failed to bind to port 4221\n");
   }
   
   int connection_backlog = 5;
   if (listen(server_fd, connection_backlog) != 0) {
-    std::cerr << "listen failed\n";
-    return -1;
+    throw std::runtime_error("listen failed\n");
   }
 
   return server_fd;
 }
 
-int ProcessRequest(const int server_fd, const sockaddr_in client_addr, const int client_addr_len) {
+void ProcessRequest(const int client_fd) {
   
-  int rcvsocket = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);
-  std::cout << "Client connected on socket = " << rcvsocket << "\n";
+ 
+  std::cout << "Client connected on socket = " << client_fd << "\n";
 
   char buffer[1024] = {0};
-  recv(rcvsocket, buffer, sizeof(buffer), 0);
+  recv(client_fd, buffer, sizeof(buffer), 0);
   std::cout << "Client message:" << buffer << std::endl;
   
   std::vector<std::string> parsed_request = ParseRequestBuffer(buffer);
@@ -164,15 +162,11 @@ int ProcessRequest(const int server_fd, const sockaddr_in client_addr, const int
     response = Response200WithIndex(parse_request_target, 1);
   } else if (parse_request_target[0] == "user-agent") {
     response = Response200WithIndex(parsed_request, 6);
-  } else if (parse_request_target[0] == "shutdown") {
-    close(rcvsocket);
-    close(server_fd);
-    return -1;
   } else {
     response = "HTTP/1.1 404 Not Found\r\n\r\n";
   }
 
-  ssize_t bytes_sent = send(rcvsocket, response.c_str(), response.size(), 0);
+  ssize_t bytes_sent = send(client_fd, response.c_str(), response.size(), 0);
 
   if (bytes_sent > 0) {
     std::cout << "Sent " << bytes_sent << " bytes" << std::endl;
@@ -181,10 +175,7 @@ int ProcessRequest(const int server_fd, const sockaddr_in client_addr, const int
     std::cout << "Error sending response";
   }
 
-  close(rcvsocket);
-  close(server_fd);
-  
-  return 0;
+  close(client_fd);
 }
 
 int main(int argc, char **argv) {
@@ -192,25 +183,30 @@ int main(int argc, char **argv) {
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
 
-  while (true) {
-    int server_fd = OpenConnection();
-    std::cout << "Server file descriptor = " << server_fd << std::endl;
-    if (server_fd == -1) {
-      break;
-    }
+  int server_fd = OpenServerConnection();
+  std::cout << "Server file descriptor = " << server_fd << std::endl;
+  int client_fd;
 
-    struct sockaddr_in client_addr;
-    const int client_addr_len = sizeof(client_addr);
-    
-    std::cout << "Waiting for a client to connect...\n";
+  try {
+    while (true) {
+      struct sockaddr_in client_addr;
+      const int client_addr_len = sizeof(client_addr);
+      std::cout << "Waiting for a client to connect...\n";
 
-    int result = ProcessRequest(server_fd, client_addr, client_addr_len);
-    if (result == -1) {
-      break;
+      client_fd = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);      
+
+      std::thread request_thread(ProcessRequest, client_fd);
+      
+      // Bad practice? Thread detached from main thread
+      request_thread.detach();
     }
+  } catch (...) {
+    close(server_fd);
+    throw;
   }
+  close(server_fd);
   
-  
+  std::cout << "Server shutdown\n";
 
   return 0;
 }
