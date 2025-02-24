@@ -40,7 +40,7 @@ struct Response {
   std::string body;
 
   std::string to_str() {
-    return status.to_str() + header.to_str() + body;
+    return status.to_str() + header.to_str() + body + "\r\n";
   }
 };
 
@@ -123,9 +123,7 @@ std::string PrepareResponse(const std::string status, const std::string status_c
   Response response;
   response.status = status_line;
   response.header = header_data;
-  if (body.length() > 0) {
-    response.body = body;
-  }
+  response.body = body;
 
   return response.to_str();
 }
@@ -193,7 +191,7 @@ void ProcessRequest(const int client_fd) {
   Request parsed_request = ParseRequest(buffer);
   std::string response;
   if (parsed_request.url_str == "/" || parsed_request.url_str == "") {
-    response = PrepareResponse("OK", "200", "text/plain", "");
+    response = "HTTP/1.1 200 OK\r\n\r\n";
   } else if (parsed_request.url[0] == "echo") {
     std::string body = parsed_request.url[1];
     response = PrepareResponse("OK", "200", "text/plain", body);
@@ -204,10 +202,10 @@ void ProcessRequest(const int client_fd) {
     if (body.length() > 0) {
       response = PrepareResponse("OK", "200", "application/octet-stream", body);
     } else {
-      response = PrepareResponse("Not Found", "404", "text/plain", "");
+      response = "HTTP/1.1 404 Not Found\r\n\r\n";
     }
   } else {
-    response = PrepareResponse("Not Found", "404", "text/plain", "");
+    response = "HTTP/1.1 404 Not Found\r\n\r\n";
   }
 
   ssize_t bytes_sent = send(client_fd, response.c_str(), response.size(), 0);
