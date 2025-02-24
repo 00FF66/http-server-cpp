@@ -10,6 +10,9 @@
 #include <vector>
 #include <string>
 #include <thread>
+#include <fstream>
+
+std::string DIR;
 
 struct StatusLine {
   std::string protocol;
@@ -160,6 +163,26 @@ int OpenServerConnection() {
   return server_fd;
 }
 
+
+std::string ReadFile(std::string filename) {
+  std::string body;
+  std::string line;
+  std::ifstream input(DIR + filename);
+  if (!input.is_open()) {
+    std::cout << "File can't be opened\n";
+    return "";
+  }
+
+  while ( getline (input, line) ) {
+      body += line + "\r\n";
+  }
+  // std::cout << "File content: ";
+  // std::cout << body << std::endl;
+  input.close();
+
+  return body;
+}
+
 void ProcessRequest(const int client_fd) {
 
   std::cout << "Client connected on socket = " << client_fd << "\n";
@@ -178,7 +201,12 @@ void ProcessRequest(const int client_fd) {
   } else if (parsed_request.url[0] == "user-agent") {
     response = PrepareResponse("OK", "200", "text/plain", parsed_request.user_agent);
   } else if (parsed_request.url[0] == "files") {
-    std::cout << " FILES CALLED " << "\r\n";
+    std::string body = ReadFile(parsed_request.url[1]);
+    if (body != "") {
+      response = PrepareResponse("OK", "200", "application/octet-stream", body);
+    } else {
+      response = "HTTP/1.1 404 Not Found\r\n\r\n";
+    }
   } else {
     response = "HTTP/1.1 404 Not Found\r\n\r\n";
   }
@@ -200,6 +228,13 @@ int main(int argc, char **argv) {
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
 
+  // all odd is program options
+  std::cout << "Program options: " << argv[1] << std::endl;
+  // all even is option params
+  std::cout << "Directory path = " << argv[2] << std::endl;
+
+  DIR = argv[2];
+  
   int server_fd = OpenServerConnection();
   std::cout << "Server file descriptor = " << server_fd << std::endl;
   int client_fd;
