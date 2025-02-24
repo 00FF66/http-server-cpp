@@ -118,12 +118,12 @@ std::string PrepareResponse(const std::string status, const std::string status_c
 
   HeaderData header_data;
   header_data.content_type = content_type;
-  header_data.content_length = body.size();
+  header_data.content_length = std::to_string(body.size());
   
   Response response;
   response.status = status_line;
   response.header = header_data;
-  if (body.size() > 0) {
+  if (body.length() > 0) {
     response.body = body;
   }
 
@@ -163,9 +163,7 @@ int OpenServerConnection() {
   return server_fd;
 }
 
-
 std::string ReadFile(std::string filename) {
-  std::cout << "Filename: " << filename << std::endl;
   std::string body;
   std::string line;
   std::ifstream input(DIR + filename);
@@ -175,10 +173,10 @@ std::string ReadFile(std::string filename) {
   }
 
   while ( getline (input, line) ) {
-      body += line + "\r\n";
+      body += line + "\n";
   }
-  std::cout << "File content: ";
-  std::cout << body << std::endl;
+  // std::cout << "File content: ";
+  // std::cout << body << std::endl;
   input.close();
 
   return body;
@@ -203,13 +201,13 @@ void ProcessRequest(const int client_fd) {
     response = PrepareResponse("OK", "200", "text/plain", parsed_request.user_agent);
   } else if (parsed_request.url[0] == "files") {
     std::string body = ReadFile(parsed_request.url[1]);
-    if (body != "") {
+    if (body.length() > 0) {
       response = PrepareResponse("OK", "200", "application/octet-stream", body);
     } else {
-      response = PrepareResponse("Not Found", "400", "application/octet-stream", "");
+      response = PrepareResponse("Not Found", "404", "text/plain", "");
     }
   } else {
-    response = PrepareResponse("Not Found", "400", "application/octet-stream", "");
+    response = PrepareResponse("Not Found", "404", "text/plain", "");
   }
 
   ssize_t bytes_sent = send(client_fd, response.c_str(), response.size(), 0);
@@ -230,9 +228,9 @@ int main(int argc, char **argv) {
   std::cerr << std::unitbuf;
 
   // all odd is program options
-  std::cout << "Program options: " << argv[1] << std::endl;
+  // std::cout << "Program options: " << argv[1] << std::endl;
   // all even is option params
-  std::cout << "Directory path = " << argv[2] << std::endl;
+  // std::cout << "Directory path = " << argv[2] << std::endl;
 
   DIR = argv[2];
   
