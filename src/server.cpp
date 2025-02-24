@@ -34,34 +34,26 @@ struct HeaderData {
 struct Response {
   StatusLine status;
   HeaderData header;
-  std::string response_body;
+  std::string body;
 
   std::string to_str() {
-    return status.to_str() + header.to_str() + response_body;
+    return status.to_str() + header.to_str() + body;
   }
 };
 
-// TODO: refactor to parsing to object instead of vector
-std::vector<std::string> ParseRequestBuffer(const char* buffer) {
-  std::vector<std::string> result;
-  std::string word;
+struct Request {
+  std::string method;
+  std::vector<std::string> url;
+  std::string url_str;
+  std::string protocol;
+  std::string host;
+  std::string user_agent;
+  std::string accept;
 
-  for (int i = 0; buffer[i] != '\0'; ++i) {
-    if (buffer[i] == ' ' || buffer[i] == '\r' || buffer[i] == '\n') {
-      if (!word.empty()) {
-        result.push_back(word);
-        word.clear();
-      }
-    } else {
-      word += buffer[i];
-    }
+  std::string to_str() {
+    return method + " " + url_str + " " + protocol + "\r\nHost: " + host + "\r\nUser-Agent: " + user_agent + + "\r\nAccept: " + accept + "\r\n";
   }
-  if (!word.empty()) {
-    result.push_back(word);
-  }
-
-  return result;
-}
+};
 
 std::vector<std::string> ParseURL(std::string url) {
   std::vector<std::string> result;
@@ -84,31 +76,55 @@ std::vector<std::string> ParseURL(std::string url) {
   return result;
 }
 
-const char* ParseResponse(const std::string url) {
+Request ParseRequest(const char* buffer) {
+  Request request;
+  std::vector<std::string> result;
+  std::string word;
+
+  for (int i = 0; buffer[i] != '\0'; ++i) {
+    if (buffer[i] == ' ' || buffer[i] == '\r' || buffer[i] == '\n') {
+      if (!word.empty()) {
+        result.push_back(word);
+        word.clear();
+      }
+    } else {
+      word += buffer[i];
+    }
+  }
+  if (!word.empty()) {
+    result.push_back(word);
+  }
+
+  request.method = result[0];
+  request.url = ParseURL(result[1]);
+  request.url_str = result[1];
+  request.protocol = result[2];
+  request.host = result[4];
+  request.user_agent = result[6];
+  request.accept = result[8];
+
+  return request;
+}
+
+std::string PrepareResponse(const std::string status, const std::string status_code, const std::string content_type, const std::string body) {
   StatusLine status_line;
   status_line.protocol = "HTTP/1.1";
-  status_line.status = "OK";
-  status_line.status_code = "200";
+
+  status_line.status = status;
+  status_line.status_code = status_code;
 
   HeaderData header_data;
-  header_data.content_type = "text/plain";
-  header_data.content_length = "0";
+  header_data.content_type = content_type;
+  header_data.content_length = body.size();
   
   Response response;
   response.status = status_line;
   response.header = header_data;
-  if (url != "/") {
-    response.status.status = "NOT FOUND";
-    response.status.status_code = "404";
+  if (body.size() > 0) {
+    response.body = body;
   }
 
-  return response.to_str().c_str();
-}
-
-// TODO: temp method, create proper methods with structs later
-std::string Response200WithIndex(std::vector<std::string> data, int index) {
-  std::string body_content = data[index];
-  return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: " + std::to_string(body_content.size()) + "\r\n\r\n" + body_content;
+  return response.to_str();
 }
 
 int OpenServerConnection() {
@@ -145,23 +161,24 @@ int OpenServerConnection() {
 }
 
 void ProcessRequest(const int client_fd) {
-  
- 
+
   std::cout << "Client connected on socket = " << client_fd << "\n";
 
   char buffer[1024] = {0};
   recv(client_fd, buffer, sizeof(buffer), 0);
   std::cout << "Client message:" << buffer << std::endl;
   
-  std::vector<std::string> parsed_request = ParseRequestBuffer(buffer);
-  std::vector<std::string> parse_request_target = ParseURL(parsed_request[1]);
+  Request parsed_request = ParseRequest(buffer);
   std::string response;
-  if (parsed_request[1] == "/") {
-    response = "HTTP/1.1 200 OK\r\n\r\n";
-  } else if (parse_request_target[0] == "echo") {
-    response = Response200WithIndex(parse_request_target, 1);
-  } else if (parse_request_target[0] == "user-agent") {
-    response = Response200WithIndex(parsed_request, 6);
+  if (parsed_request.url_str == "/" || parsed_request.url_str == "") {
+    response = PrepareResponse("OK", "200", "text/plain", "");
+  } else if (parsed_request.url[0] == "echo") {
+    std::string body = parsed_request.url[1];
+    response = PrepareResponse("OK", "200", "text/plain", body);
+  } else if (parsed_request.url[0] == "user-agent") {
+    response = PrepareResponse("OK", "200", "text/plain", parsed_request.user_agent);
+  } else if (parsed_request.url[0] == "files") {
+    std::cout << " FILES CALLED " << "\r\n";
   } else {
     response = "HTTP/1.1 404 Not Found\r\n\r\n";
   }
