@@ -205,10 +205,10 @@ void ProcessRequest(const int client_fd) {
     if (body != "") {
       response = PrepareResponse("OK", "200", "application/octet-stream", body);
     } else {
-      response = PrepareResponse("Not Found", "400", "application/octet-stream", body);
+      response = PrepareResponse("Not Found", "400", "application/octet-stream", "");
     }
   } else {
-    response = PrepareResponse("Not Found", "400", "application/octet-stream", body);
+    response = PrepareResponse("Not Found", "400", "application/octet-stream", "");
   }
 
   ssize_t bytes_sent = send(client_fd, response.c_str(), response.size(), 0);
