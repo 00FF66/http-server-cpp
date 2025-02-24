@@ -12,8 +12,6 @@
 #include <thread>
 #include <fstream>
 
-std::string DIR;
-
 struct StatusLine {
   std::string protocol;
   std::string status_code;
@@ -164,7 +162,7 @@ int OpenServerConnection() {
 std::string ReadFile(std::string filename) {
   std::string body;
   std::string line;
-  std::ifstream input(DIR + filename);
+  std::ifstream input(filename);
   if (!input.is_open()) {
     std::cout << "File can't be opened\n";
     return "";
@@ -180,7 +178,7 @@ std::string ReadFile(std::string filename) {
   return body;
 }
 
-void ProcessRequest(const int client_fd) {
+void ProcessRequest(const int client_fd, std::string directory) {
 
   std::cout << "Client connected on socket = " << client_fd << "\n";
 
@@ -198,7 +196,7 @@ void ProcessRequest(const int client_fd) {
   } else if (parsed_request.url[0] == "user-agent") {
     response = PrepareResponse("OK", "200", "text/plain", parsed_request.user_agent);
   } else if (parsed_request.url[0] == "files") {
-    std::string body = ReadFile(parsed_request.url[1]);
+    std::string body = ReadFile(directory+parsed_request.url[1]);
     if (body.length() > 0) {
       response = PrepareResponse("OK", "200", "application/octet-stream", body);
     } else {
@@ -230,7 +228,7 @@ int main(int argc, char **argv) {
   // all even is option params
   // std::cout << "Directory path = " << argv[2] << std::endl;
 
-  DIR = argv[2];
+  std::string directory = argv[2];
   
   int server_fd = OpenServerConnection();
   std::cout << "Server file descriptor = " << server_fd << std::endl;
@@ -244,7 +242,7 @@ int main(int argc, char **argv) {
 
       client_fd = accept(server_fd, (struct sockaddr *) &client_addr, (socklen_t *) &client_addr_len);      
 
-      std::thread request_thread(ProcessRequest, client_fd);
+      std::thread request_thread(ProcessRequest, client_fd, directory);
       
       // Bad practice? Thread detached from main thread
       request_thread.detach();
