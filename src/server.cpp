@@ -27,8 +27,7 @@ struct HeaderData {
   std::string content_length;
   
   std::string to_str() {
-    return "Content-Type: " + content_type + 
-    "\r\nContent-Length: " + content_length + "\r\n\r\n";
+    return "Content-Type: " + content_type + "\r\nContent-Length: " + content_length + "\r\n\r\n";
   }
 };
 
