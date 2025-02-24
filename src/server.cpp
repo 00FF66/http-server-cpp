@@ -38,7 +38,7 @@ struct Response {
   std::string body;
 
   std::string to_str() {
-    return status.to_str() + header.to_str() + body + "\r\n";
+    return status.to_str() + header.to_str() + body;
   }
 };
 
