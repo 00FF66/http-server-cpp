@@ -165,6 +165,7 @@ int OpenServerConnection() {
 
 
 std::string ReadFile(std::string filename) {
+  std::cout << "Filename: " << filename << std::endl;
   std::string body;
   std::string line;
   std::ifstream input(DIR + filename);
@@ -176,8 +177,8 @@ std::string ReadFile(std::string filename) {
   while ( getline (input, line) ) {
       body += line + "\r\n";
   }
-  // std::cout << "File content: ";
-  // std::cout << body << std::endl;
+  std::cout << "File content: ";
+  std::cout << body << std::endl;
   input.close();
 
   return body;
