@@ -11,13 +11,16 @@
 #include <string>
 #include <thread>
 #include <fstream>
+#include <mutex>
+
+std::mutex file_lock;
 
 struct StatusLine {
   std::string protocol;
   std::string status_code;
   std::string status;
 
-  std::string to_str() {
+  std::string to_str() const {
     return protocol + " " + status_code + " " + status + "\r\n";
   }
 };
@@ -26,7 +29,7 @@ struct HeaderData {
   std::string content_type;
   std::string content_length;
   
-  std::string to_str() {
+  std::string to_str() const {
     return "Content-Type: " + content_type + "\r\nContent-Length: " + content_length + "\r\n\r\n";
   }
 };
@@ -36,7 +39,7 @@ struct Response {
   HeaderData header;
   std::string body;
 
-  std::string to_str() {
+  std::string to_str() const {
     return status.to_str() + header.to_str() + body;
   }
 };
@@ -50,12 +53,12 @@ struct Request {
   std::string user_agent;
   std::string accept;
 
-  std::string to_str() {
-    return method + " " + url_str + " " + protocol + "\r\nHost: " + host + "\r\nUser-Agent: " + user_agent + + "\r\nAccept: " + accept + "\r\n";
+  std::string to_str() const {
+    return method + " " + url_str + " " + protocol + "\r\nHost: " + host + "\r\nUser-Agent: " + user_agent + "\r\nAccept: " + accept + "\r\n";
   }
 };
 
-std::vector<std::string> ParseURL(std::string url) {
+std::vector<std::string> ParseURL(std::string& url) {
   std::vector<std::string> result;
   std::string url_str;
 
@@ -106,7 +109,7 @@ Request ParseRequest(const char* buffer) {
   return request;
 }
 
-std::string PrepareResponse(const std::string status, const std::string status_code, const std::string content_type, const std::string body) {
+std::string PrepareResponse(const std::string& status, const std::string& status_code, const std::string& content_type, const std::string& body) {
   StatusLine status_line;
   status_line.protocol = "HTTP/1.1";
 
@@ -159,6 +162,7 @@ int OpenServerConnection() {
 }
 
 std::string ReadFile(std::string filename) {
+  std::lock_guard<std::mutex> lock(file_lock);
   std::string body;
   std::string line;
   std::ifstream input(filename);
@@ -168,7 +172,10 @@ std::string ReadFile(std::string filename) {
   }
 
   while ( getline (input, line) ) {
-      body += line + "\n";
+      body += line;
+      if (!input.eof()) {
+        body += '\n';
+      }
   }
   // std::cout << "File content: ";
   // std::cout << body << std::endl;
@@ -181,7 +188,8 @@ void ProcessRequest(const int client_fd, std::string directory) {
 
   std::cout << "Client connected on socket = " << client_fd << "\n";
 
-  char buffer[1024] = {0};
+  // each thread gets its own buffer
+  thread_local char buffer[1024] = {0};
   recv(client_fd, buffer, sizeof(buffer), 0);
   std::cout << "Client message:" << buffer << std::endl;
   
@@ -191,13 +199,13 @@ void ProcessRequest(const int client_fd, std::string directory) {
     response = "HTTP/1.1 200 OK\r\n\r\n";
   } else if (parsed_request.url[0] == "echo") {
     std::string body = parsed_request.url[1];
-    response = PrepareResponse("OK", "200", "text/plain", body);
+    response = PrepareResponse("OK", "200", "text/plain", std::move(body));
   } else if (parsed_request.url[0] == "user-agent") {
-    response = PrepareResponse("OK", "200", "text/plain", parsed_request.user_agent);
+    response = PrepareResponse("OK", "200", "text/plain", std::move(parsed_request.user_agent));
   } else if (parsed_request.url[0] == "files") {
     std::string body = ReadFile(directory+parsed_request.url[1]);
     if (body.length() > 0) {
-      response = PrepareResponse("OK", "200", "application/octet-stream", body);
+      response = PrepareResponse("OK", "200", "application/octet-stream", std::move(body));
     } else {
       response = "HTTP/1.1 404 Not Found\r\n\r\n";
     }
