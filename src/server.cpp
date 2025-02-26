@@ -8,10 +8,13 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <vector>
-#include <string>
 #include <thread>
 #include <fstream>
+#include <sstream>
 #include <mutex>
+#include <unordered_map>
+#include <algorithm>
+#include <cctype>
 
 std::mutex file_lock;
 
@@ -46,15 +49,21 @@ struct Response {
 
 struct Request {
   std::string method;
-  std::vector<std::string> url;
-  std::string url_str;
-  std::string protocol;
-  std::string host;
-  std::string user_agent;
-  std::string accept;
+  std::vector<std::string> url;  // Parsed URL components
+  std::string url_str;          // Original URL string
+  std::unordered_map<std::string, std::string> headers;
+  std::string body;
 
   std::string to_str() const {
-    return method + " " + url_str + " " + protocol + "\r\nHost: " + host + "\r\nUser-Agent: " + user_agent + "\r\nAccept: " + accept + "\r\n";
+    auto getHeader = [this](const std::string& key) {
+      auto it = headers.find(key);
+      return (it != headers.end()) ? it->second : "";
+    };
+
+  return method + " " + url_str + " " + getHeader("protocol") + 
+          "\r\nHost: " + getHeader("Host") + 
+          "\r\nUser-Agent: " + getHeader("User-Agent") + 
+          "\r\nAccept: " + getHeader("Accept") + "\r\n";
   }
 };
 
@@ -79,33 +88,49 @@ std::vector<std::string> ParseURL(std::string& url) {
   return result;
 }
 
-Request ParseRequest(const char* buffer) {
-  Request request;
-  std::vector<std::string> result;
-  std::string word;
 
-  for (int i = 0; buffer[i] != '\0'; ++i) {
-    if (buffer[i] == ' ' || buffer[i] == '\r' || buffer[i] == '\n') {
-      if (!word.empty()) {
-        result.push_back(word);
-        word.clear();
-      }
-    } else {
-      word += buffer[i];
+std::string trim(const std::string& str) {
+    auto start = std::find_if(str.begin(), str.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    });
+
+    auto end = std::find_if(str.rbegin(), str.rend(), [](unsigned char ch) {
+        return !std::isspace(ch);
+    }).base();
+
+    return (start < end) ? std::string(start, end) : "";
+}
+
+Request ParseRequest(const std::string buffer) {
+  Request request;
+  // used to process string stream line by line and word by word instead of char by char
+  std::istringstream requestStream(buffer);
+  std::string line;
+  
+  // Process the request line
+  std::getline(requestStream, line);
+  std::istringstream lineStream(line);
+  lineStream >> request.method >> request.url_str >> request.headers["protocol"];
+  
+  // Parse request URL once it's extracted
+  request.url = ParseURL(request.url_str);
+  
+  // Process headers
+  while (std::getline(requestStream, line) && line != "\r") {
+    auto colonPos = line.find(':');
+    if (colonPos != std::string::npos) {
+      std::string headerName = line.substr(0, colonPos);
+      std::string headerValue = line.substr(colonPos + 2); // Skip the colon and space
+      request.headers[headerName] = trim(headerValue);
+      
     }
   }
-  if (!word.empty()) {
-    result.push_back(word);
+  
+  // Process body
+  while (std::getline(requestStream, line)) {
+    request.body += line + "\n";
   }
-
-  request.method = result[0];
-  request.url = ParseURL(result[1]);
-  request.url_str = result[1];
-  request.protocol = result[2];
-  request.host = result[4];
-  request.user_agent = result[6];
-  request.accept = result[8];
-
+  
   return request;
 }
 
@@ -161,27 +186,22 @@ int OpenServerConnection() {
   return server_fd;
 }
 
-std::string ReadFile(std::string filename) {
+std::string ReadFileStream(std::string filename) {
   std::lock_guard<std::mutex> lock(file_lock);
-  std::string body;
-  std::string line;
   std::ifstream input(filename);
-  if (!input.is_open()) {
+  // efficient way to read an entire file in one go
+  std::stringstream buffer;
+  if (!input) {
     std::cout << "File can't be opened\n";
     return "";
   }
-
-  while ( getline (input, line) ) {
-      body += line;
-      if (!input.eof()) {
-        body += '\n';
-      }
+  
+  if (input.good()) {
+    buffer << input.rdbuf();
   }
-  // std::cout << "File content: ";
-  // std::cout << body << std::endl;
   input.close();
 
-  return body;
+  return buffer.str();
 }
 
 void ProcessRequest(const int client_fd, std::string directory) {
@@ -193,7 +213,7 @@ void ProcessRequest(const int client_fd, std::string directory) {
   recv(client_fd, buffer, sizeof(buffer), 0);
   std::cout << "Client message:" << buffer << std::endl;
   
-  Request parsed_request = ParseRequest(buffer);
+  Request parsed_request = ParseRequest(std::string(buffer));
   std::string response;
   if (parsed_request.url_str == "/" || parsed_request.url_str == "") {
     response = "HTTP/1.1 200 OK\r\n\r\n";
@@ -201,9 +221,9 @@ void ProcessRequest(const int client_fd, std::string directory) {
     std::string body = parsed_request.url[1];
     response = PrepareResponse("OK", "200", "text/plain", std::move(body));
   } else if (parsed_request.url[0] == "user-agent") {
-    response = PrepareResponse("OK", "200", "text/plain", std::move(parsed_request.user_agent));
+    response = PrepareResponse("OK", "200", "text/plain", std::move(parsed_request.headers["User-Agent"]));
   } else if (parsed_request.url[0] == "files") {
-    std::string body = ReadFile(directory+parsed_request.url[1]);
+    std::string body = ReadFileStream(directory+parsed_request.url[1]);
     if (body.length() > 0) {
       response = PrepareResponse("OK", "200", "application/octet-stream", std::move(body));
     } else {
