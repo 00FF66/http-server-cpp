@@ -130,6 +130,8 @@ Request ParseRequest(const std::string buffer) {
   while (std::getline(requestStream, line)) {
     request.body += line + "\n";
   }
+
+  request.body = trim(request.body);
   
   return request;
 }
@@ -151,6 +153,26 @@ std::string PrepareResponse(const std::string& status, const std::string& status
   response.body = body;
 
   return response.to_str();
+}
+
+void CreateFile(Request request, const std::string &directory) {
+  // std::cout << "FIle body: " << request.body << std::endl;
+  // std::cout << "FIle size: " << std::to_string(request.body.size()) << std::endl;
+  // Open file in write mode
+  std::ofstream file(directory + request.url[1]);
+    
+  // Check if file opened successfully
+  if (!file) {
+      std::cerr << "Error opening file: " << directory + request.url[1] << std::endl;
+      // throw
+      return;
+  }
+
+  // Write string to file
+  file << request.body;
+
+  // Close file
+  file.close();
 }
 
 int OpenServerConnection() {
@@ -223,9 +245,16 @@ void ProcessRequest(const int client_fd, std::string directory) {
   } else if (parsed_request.url[0] == "user-agent") {
     response = PrepareResponse("OK", "200", "text/plain", std::move(parsed_request.headers["User-Agent"]));
   } else if (parsed_request.url[0] == "files") {
-    std::string body = ReadFileStream(directory+parsed_request.url[1]);
-    if (body.length() > 0) {
-      response = PrepareResponse("OK", "200", "application/octet-stream", std::move(body));
+    if (parsed_request.method == "GET") {
+      std::string body = ReadFileStream(directory+parsed_request.url[1]);
+      if (body.length() > 0) {
+        response = PrepareResponse("OK", "200", "application/octet-stream", std::move(body));
+      } else {
+        response = "HTTP/1.1 404 Not Found\r\n\r\n";
+      }
+    } else if (parsed_request.method == "POST") {
+      CreateFile(parsed_request, directory);
+      response = "HTTP/1.1 201 Created\r\n\r\n";
     } else {
       response = "HTTP/1.1 404 Not Found\r\n\r\n";
     }
