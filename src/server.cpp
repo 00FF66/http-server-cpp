@@ -83,6 +83,18 @@ struct Request {
   }
 };
 
+std::string trim(const std::string& str) {
+  auto start = std::find_if(str.begin(), str.end(), [](unsigned char ch) {
+      return !std::isspace(ch);
+  });
+
+  auto end = std::find_if(str.rbegin(), str.rend(), [](unsigned char ch) {
+      return !std::isspace(ch);
+  }).base();
+
+  return (start < end) ? std::string(start, end) : "";
+}
+
 std::vector<std::string> ParseURL(std::string& url) {
   std::vector<std::string> result;
   std::string url_str;
@@ -104,17 +116,20 @@ std::vector<std::string> ParseURL(std::string& url) {
   return result;
 }
 
+bool contains(const std::vector<std::string>& vec, const std::string& target) {
+  return std::find(vec.begin(), vec.end(), target) != vec.end();
+}
 
-std::string trim(const std::string& str) {
-    auto start = std::find_if(str.begin(), str.end(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    });
+std::vector<std::string> ParseStringToVectorString(const std::string& str, char delimiter) {
+  std::vector<std::string> result;
+  std::stringstream ss(str);
+  std::string item;
 
-    auto end = std::find_if(str.rbegin(), str.rend(), [](unsigned char ch) {
-        return !std::isspace(ch);
-    }).base();
+  while (std::getline(ss, item, delimiter)) {
+      result.push_back(trim(item));
+  }
 
-    return (start < end) ? std::string(start, end) : "";
+  return result;
 }
 
 Request ParseRequest(const std::string buffer) {
@@ -160,8 +175,9 @@ std::string PrepareResponse(const std::string& status, const std::string& status
   status_line.status_code = status_code;
 
   HeaderData header_data;
-  if (encoding != "" && encoding == "gzip") {
-    header_data.headers["Content-Encoding"] = encoding;
+  std::vector<std::string> encoding_vec = ParseStringToVectorString(encoding, ',');
+  if (encoding != "" && contains(encoding_vec, "gzip")) {
+    header_data.headers["Content-Encoding"] = "gzip"; // change to list of supported encodings
   }
   header_data.headers["Content-Type"] = content_type;
   if (body.size() > 0) {
