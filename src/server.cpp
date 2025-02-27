@@ -29,11 +29,26 @@ struct StatusLine {
 };
 
 struct HeaderData {
-  std::string content_type;
-  std::string content_length;
-  
+  std::unordered_map<std::string, std::string> headers;
+
   std::string to_str() const {
-    return "Content-Type: " + content_type + "\r\nContent-Length: " + content_length + "\r\n\r\n";
+    std::string response_str = "";
+
+    auto getHeader = [this](const std::string& key) {
+      auto it = headers.find(key);
+      return (it != headers.end()) ? it->second : "";
+    };
+
+    if (getHeader("Content-Encoding") != "") {
+      response_str += "Content-Encoding: " + getHeader("Content-Encoding") + "\r\n";
+    }
+    if (getHeader("Content-Type") != "") {
+      response_str += "Content-Type: " + getHeader("Content-Type") + "\r\n";
+    }
+    if (getHeader("Content-Length") != "") {
+      response_str += "Content-Length: " + getHeader("Content-Length") + "\r\n";
+    }
+    return response_str + "\r\n";
   }
 };
 
@@ -63,7 +78,8 @@ struct Request {
   return method + " " + url_str + " " + getHeader("protocol") + 
           "\r\nHost: " + getHeader("Host") + 
           "\r\nUser-Agent: " + getHeader("User-Agent") + 
-          "\r\nAccept: " + getHeader("Accept") + "\r\n";
+          "\r\nAccept: " + getHeader("Accept") + 
+          "\r\nAccept-Encoding: " + getHeader("Accept-Encoding") + "\r\n";
   }
 };
 
@@ -136,7 +152,7 @@ Request ParseRequest(const std::string buffer) {
   return request;
 }
 
-std::string PrepareResponse(const std::string& status, const std::string& status_code, const std::string& content_type, const std::string& body) {
+std::string PrepareResponse(const std::string& status, const std::string& status_code, const std::string& content_type, const std::string& body, const std::string& encoding) {
   StatusLine status_line;
   status_line.protocol = "HTTP/1.1";
 
@@ -144,8 +160,13 @@ std::string PrepareResponse(const std::string& status, const std::string& status
   status_line.status_code = status_code;
 
   HeaderData header_data;
-  header_data.content_type = content_type;
-  header_data.content_length = std::to_string(body.size());
+  if (encoding != "" && encoding == "gzip") {
+    header_data.headers["Content-Encoding"] = encoding;
+  }
+  header_data.headers["Content-Type"] = content_type;
+  if (body.size() > 0) {
+    header_data.headers["Content-Length"] = std::to_string(body.size());
+  }
   
   Response response;
   response.status = status_line;
@@ -241,14 +262,14 @@ void ProcessRequest(const int client_fd, std::string directory) {
     response = "HTTP/1.1 200 OK\r\n\r\n";
   } else if (parsed_request.url[0] == "echo") {
     std::string body = parsed_request.url[1];
-    response = PrepareResponse("OK", "200", "text/plain", std::move(body));
+    response = PrepareResponse("OK", "200", "text/plain", std::move(body), parsed_request.headers["Accept-Encoding"]);
   } else if (parsed_request.url[0] == "user-agent") {
-    response = PrepareResponse("OK", "200", "text/plain", std::move(parsed_request.headers["User-Agent"]));
+    response = PrepareResponse("OK", "200", "text/plain", std::move(parsed_request.headers["User-Agent"]), parsed_request.headers["Accept-Encoding"]);
   } else if (parsed_request.url[0] == "files") {
     if (parsed_request.method == "GET") {
       std::string body = ReadFileStream(directory+parsed_request.url[1]);
       if (body.length() > 0) {
-        response = PrepareResponse("OK", "200", "application/octet-stream", std::move(body));
+        response = PrepareResponse("OK", "200", "application/octet-stream", std::move(body), parsed_request.headers["Accept-Encoding"]);
       } else {
         response = "HTTP/1.1 404 Not Found\r\n\r\n";
       }
