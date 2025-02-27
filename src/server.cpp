@@ -15,8 +15,12 @@
 #include <unordered_map>
 #include <algorithm>
 #include <cctype>
+#include <zlib.h>
+#include <iomanip>
 
 std::mutex file_lock;
+
+// TODO: refactor all code to separate .h files
 
 struct StatusLine {
   std::string protocol;
@@ -95,6 +99,14 @@ std::string trim(const std::string& str) {
   return (start < end) ? std::string(start, end) : "";
 }
 
+std::vector<char> stringToVector(const std::string& str) {
+  return std::vector<char>(str.begin(), str.end());
+}
+
+std::string vectorToString(const std::vector<char>& vec) {
+  return std::string(vec.begin(), vec.end());
+}
+
 std::vector<std::string> ParseURL(std::string& url) {
   std::vector<std::string> result;
   std::string url_str;
@@ -167,7 +179,77 @@ Request ParseRequest(const std::string buffer) {
   return request;
 }
 
+std::string compressStringToGzipOld(const std::string& str) {
+  // Prepare a buffer for the compressed data
+  // compressBound - determine size 
+  std::vector<unsigned char> compressedData(compressBound(str.size()));
+  
+  // Compress the data
+  uLongf compressedSize = compressedData.size();
+  
+  int result = compress2(reinterpret_cast<Bytef*>(compressedData.data()), &compressedSize,
+                         reinterpret_cast<const Bytef*>(str.data()), str.size(),
+                         Z_BEST_COMPRESSION);
+  
+  if (result != Z_OK) {
+    throw std::runtime_error("Compression failed");
+  }
+  
+  compressedData.resize(compressedSize); // Resize to the actual compressed size
+  return std::string(compressedData.begin(), compressedData.end());
+}
+
+
+std::string compressStringToGzip(const std::string& str) {
+  if (str.empty()) {
+    return ""; // Handle empty input case
+  }
+
+  z_stream zs;                        // z_stream is zlib's control structure
+  memset(&zs, 0, sizeof(zs));
+
+  // Initialize with gzip header:
+  if (deflateInit2(&zs, Z_BEST_COMPRESSION, Z_DEFLATED, 
+                   31, // 15 | 16 = 31 (for gzip format)
+                   8, Z_DEFAULT_STRATEGY) != Z_OK) {
+      throw std::runtime_error("deflateInit2 failed");
+  }
+
+  // Set up input data
+  zs.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(str.data()));
+  zs.avail_in = static_cast<uInt>(str.size());
+
+  // Prepare the buffer for compressed data
+  // Make the buffer significantly larger to be safe
+  int buffer_size = str.size() * 1.1 + 24;
+  std::vector<unsigned char> outbuffer(buffer_size);
+
+  // Store compressed data in the buffer
+  zs.next_out = reinterpret_cast<Bytef*>(outbuffer.data());
+  zs.avail_out = buffer_size;
+
+  int result = deflate(&zs, Z_FINISH);
+  // Compress
+  // if (deflate(&zs, Z_FINISH) != Z_STREAM_END) {
+  //     deflateEnd(&zs); // Clean up
+  //     throw std::runtime_error("deflate failed");
+  // }
+
+  // Clean up
+  if (deflateEnd(&zs) != Z_OK) {
+      throw std::runtime_error("deflateEnd failed");
+  }
+
+  // Get the exact size of the compressed data
+  size_t compressed_size = buffer_size - zs.avail_out;
+  
+  // Return as string
+  return std::string(reinterpret_cast<char*>(outbuffer.data()), compressed_size);
+}
+
 std::string PrepareResponse(const std::string& status, const std::string& status_code, const std::string& content_type, const std::string& body, const std::string& encoding) {
+  std::string compressed_body = body;
+
   StatusLine status_line;
   status_line.protocol = "HTTP/1.1";
 
@@ -177,17 +259,18 @@ std::string PrepareResponse(const std::string& status, const std::string& status
   HeaderData header_data;
   std::vector<std::string> encoding_vec = ParseStringToVectorString(encoding, ',');
   if (encoding != "" && contains(encoding_vec, "gzip")) {
+    compressed_body = compressStringToGzip(body);
     header_data.headers["Content-Encoding"] = "gzip"; // change to list of supported encodings
   }
   header_data.headers["Content-Type"] = content_type;
   if (body.size() > 0) {
-    header_data.headers["Content-Length"] = std::to_string(body.size());
+    header_data.headers["Content-Length"] = std::to_string(compressed_body.size());
   }
   
   Response response;
   response.status = status_line;
   response.header = header_data;
-  response.body = body;
+  response.body = compressed_body;
 
   return response.to_str();
 }
